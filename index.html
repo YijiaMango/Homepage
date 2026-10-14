@@ -3,87 +3,75 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Webcam 3D 視差場景</title>
+  <title>庭院盆栽 · 視差體驗</title>
   <style>
     :root {
-      --panel: rgba(8, 12, 18, 0.72);
-      --line: rgba(255, 255, 255, 0.12);
-      --text: #f2f5f8;
-      --muted: #9aa7b5;
-      --accent: #3aa0ff;
+      --panel: rgba(18, 22, 18, 0.58);
+      --line: rgba(235, 240, 230, 0.14);
+      --text: #f4f6f1;
+      --muted: #b7c0b2;
+      --accent: #6f8f62;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       overflow: hidden;
-      background: #07090d;
+      background: #121610;
       color: var(--text);
-      font-family: "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+      font-family: "Iowan Old Style", "Palatino Linotype", "Songti TC", "Noto Serif TC", serif;
     }
     #overlay {
       position: absolute;
-      top: 16px;
-      left: 16px;
+      top: 20px;
+      left: 20px;
       z-index: 10;
-      width: min(360px, calc(100vw - 32px));
+      width: min(320px, calc(100vw - 40px));
       background: var(--panel);
       border: 1px solid var(--line);
-      backdrop-filter: blur(12px);
-      padding: 16px;
-      border-radius: 12px;
+      backdrop-filter: blur(14px);
+      padding: 18px 18px 16px;
+      border-radius: 14px;
     }
     h1 {
-      margin: 0 0 6px;
-      font-size: 1.15rem;
-      font-weight: 650;
-      letter-spacing: 0.02em;
+      margin: 0 0 8px;
+      font-size: 1.28rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
     }
     #status {
-      margin: 0 0 12px;
+      margin: 0 0 14px;
       color: var(--muted);
-      font-size: 0.88rem;
-      line-height: 1.45;
-    }
-    .row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
-    button, .scene-btn {
-      padding: 8px 12px;
-      font-size: 13px;
-      cursor: pointer;
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--text);
-      border: 1px solid var(--line);
-      border-radius: 8px;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      font-family: "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
     }
     #start-btn {
+      padding: 10px 14px;
+      font-size: 13px;
+      cursor: pointer;
       background: var(--accent);
-      border-color: transparent;
-      color: #fff;
-      font-weight: 600;
+      color: #f7faf4;
+      border: none;
+      border-radius: 999px;
+      font-family: "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+      letter-spacing: 0.04em;
     }
-    button:disabled, .scene-btn:disabled {
+    #start-btn:disabled {
       opacity: 0.45;
       cursor: not-allowed;
-    }
-    .scene-btn.active {
-      background: rgba(58, 160, 255, 0.22);
-      border-color: rgba(58, 160, 255, 0.7);
     }
     #loading {
       position: absolute;
       inset: 0;
       display: grid;
       place-items: center;
-      background: rgba(7, 9, 13, 0.55);
+      background: rgba(12, 16, 12, 0.42);
       color: var(--muted);
       z-index: 5;
       pointer-events: none;
       opacity: 0;
-      transition: opacity 0.2s ease;
+      transition: opacity 0.25s ease;
+      font-family: "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
     }
     #loading.show { opacity: 1; }
     #webcam { display: none; }
@@ -97,276 +85,120 @@
 </head>
 <body>
   <div id="overlay">
-    <h1>Webcam 3D 視差場景</h1>
-    <p id="status">選場景後開啟鏡頭，用頭部左右前後移動感受視差</p>
-    <div class="row" id="scene-btns"></div>
-    <button id="start-btn">開啟攝影機體驗</button>
+    <h1>庭院 · 盆栽</h1>
+    <p id="status">載入庭院光氛與主體盆栽中…</p>
+    <button id="start-btn" disabled>開啟攝影機體驗</button>
   </div>
-  <div id="loading">載入範本資產中…</div>
+  <div id="loading" class="show">準備庭院…</div>
   <video id="webcam" playsinline></video>
 
   <script>
-    const ASSET = {
-      tokyo: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/models/gltf/LittlestTokyo.glb',
-      neil: 'https://modelviewer.dev/shared-assets/models/NeilArmstrong.glb',
-      astronaut: 'https://modelviewer.dev/shared-assets/models/Astronaut.glb',
-      robot: 'https://modelviewer.dev/shared-assets/models/RobotExpressive.glb',
-      parrot: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/models/gltf/Parrot.glb',
-      flamingo: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/models/gltf/Flamingo.glb',
-      hdr: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/equirectangular/royal_esplanade_1k.hdr'
-    };
-
-    function playClips(gltf, root, ctx) {
-      if (!gltf.animations?.length) return;
-      const mixer = new THREE.AnimationMixer(root);
-      gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
-      ctx.mixers.push(mixer);
-    }
-
-    const sceneDefs = {
-      tokyo: async (root, ctx) => {
-        const gltf = await ctx.loadGltf(ASSET.tokyo);
-        const model = gltf.scene;
-        model.position.set(0.8, 0.6, 0);
-        model.scale.setScalar(0.01);
-        root.add(model);
-        playClips(gltf, model, ctx);
-      },
-      studio: async (root, ctx) => {
-        const [neil, astronaut, robot] = await Promise.all([
-          ctx.loadGltf(ASSET.neil),
-          ctx.loadGltf(ASSET.astronaut),
-          ctx.loadGltf(ASSET.robot)
-        ]);
-
-        neil.scene.position.set(0, -0.95, 0);
-        neil.scene.scale.setScalar(1.05);
-        root.add(neil.scene);
-
-        astronaut.scene.position.set(-1.7, -0.95, 0.15);
-        astronaut.scene.scale.setScalar(1.15);
-        astronaut.scene.rotation.y = 0.45;
-        root.add(astronaut.scene);
-
-        robot.scene.position.set(1.7, -0.95, 0.1);
-        robot.scene.scale.setScalar(0.55);
-        robot.scene.rotation.y = -0.55;
-        root.add(robot.scene);
-        playClips(robot, robot.scene, ctx);
-      },
-      aviary: async (root, ctx) => {
-        const [parrot, flamingo] = await Promise.all([
-          ctx.loadGltf(ASSET.parrot),
-          ctx.loadGltf(ASSET.flamingo)
-        ]);
-
-        parrot.scene.position.set(-1.4, 0.9, 0.2);
-        parrot.scene.scale.setScalar(0.035);
-        root.add(parrot.scene);
-        playClips(parrot, parrot.scene, ctx);
-
-        flamingo.scene.position.set(1.6, 0.35, -0.4);
-        flamingo.scene.scale.setScalar(0.035);
-        flamingo.scene.rotation.y = Math.PI * 0.85;
-        root.add(flamingo.scene);
-        playClips(flamingo, flamingo.scene, ctx);
-      }
-    };
-
-    const SCENES = [
-      {
-        id: 'studio',
-        label: '角色陳列',
-        lookAt: new THREE.Vector3(0, 0.35, 0),
-        camZ: 4.2,
-        rangeX: 2.8,
-        rangeY: 1.6,
-        build: sceneDefs.studio
-      },
-      {
-        id: 'tokyo',
-        label: '東京微縮',
-        lookAt: new THREE.Vector3(0, 1.2, 0),
-        camZ: 8,
-        rangeX: 3.2,
-        rangeY: 1.8,
-        build: sceneDefs.tokyo
-      },
-      {
-        id: 'aviary',
-        label: '飛行生物',
-        lookAt: new THREE.Vector3(0, 0.6, 0),
-        camZ: 6.5,
-        rangeX: 4.0,
-        rangeY: 2.2,
-        build: sceneDefs.aviary
-      }
-    ];
+    const PLANT_URL = 'assets/potted_plant_01/potted_plant_01_1k.gltf';
+    const HDR_URL = 'assets/courtyard_1k.hdr';
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b1018);
-    scene.fog = new THREE.Fog(0x0b1018, 12, 42);
+    const lookAt = new THREE.Vector3(0, 0.42, 0);
+    const initialCamZ = 2.35;
+    const rangeX = 1.35;
+    const rangeY = 0.85;
 
-    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 200);
-    let lookAt = new THREE.Vector3(0, 0.5, 0);
-    let initialCamZ = 5;
-    let rangeX = 3;
-    let rangeY = 1.8;
-    camera.position.set(0, 0.6, initialCamZ);
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.05, 80);
+    camera.position.set(0, 0.55, initialCamZ);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.15;
     renderer.physicallyCorrectLights = true;
     document.body.appendChild(renderer.domElement);
 
-    const hemi = new THREE.HemisphereLight(0xddeeff, 0x223344, 0.55);
-    scene.add(hemi);
-    const key = new THREE.DirectionalLight(0xfff2dd, 1.6);
-    key.position.set(4, 7, 5);
-    scene.add(key);
-    const fill = new THREE.DirectionalLight(0x88aaff, 0.45);
-    fill.position.set(-5, 2, -3);
-    scene.add(fill);
+    scene.add(new THREE.HemisphereLight(0xf2efe4, 0x3d4a38, 0.55));
+    const sun = new THREE.DirectionalLight(0xfff3d8, 1.35);
+    sun.position.set(3.5, 6.5, 2.2);
+    scene.add(sun);
+    const bounce = new THREE.DirectionalLight(0xc9d7c2, 0.35);
+    bounce.position.set(-3, 1.5, -2);
+    scene.add(bounce);
 
-    const gltfLoader = new THREE.GLTFLoader();
+    const plantRoot = new THREE.Group();
+    scene.add(plantRoot);
+
+    let targetX = 0;
+    let targetY = 0.55;
+    let targetZ = initialCamZ;
     const clock = new THREE.Clock();
-    const contentRoot = new THREE.Group();
-    scene.add(contentRoot);
-
-    const runtime = {
-      mixers: [],
-      spin: [],
-      loadGltf(url, timeoutMs = 45000) {
-        return new Promise((resolve, reject) => {
-          let done = false;
-          const timer = setTimeout(() => {
-            if (done) return;
-            done = true;
-            reject(new Error('timeout: ' + url));
-          }, timeoutMs);
-          gltfLoader.load(
-            url,
-            (gltf) => {
-              if (done) return;
-              done = true;
-              clearTimeout(timer);
-              resolve(gltf);
-            },
-            undefined,
-            (err) => {
-              if (done) return;
-              done = true;
-              clearTimeout(timer);
-              reject(err);
-            }
-          );
-        });
-      }
-    };
-
     const statusText = document.getElementById('status');
     const loadingEl = document.getElementById('loading');
-    const sceneBtns = document.getElementById('scene-btns');
-    let currentSceneId = SCENES[0].id;
-    let loading = false;
+    const startBtn = document.getElementById('start-btn');
 
-    function setLoading(on, msg) {
-      loading = on;
-      loadingEl.classList.toggle('show', on);
-      if (msg) loadingEl.textContent = msg;
-      [...sceneBtns.querySelectorAll('button')].forEach((b) => { b.disabled = on; });
+    function loadGltf(url) {
+      return new Promise((resolve, reject) => {
+        new THREE.GLTFLoader().load(url, resolve, undefined, reject);
+      });
     }
 
     function loadEnv() {
-      return Promise.race([
-        new Promise((resolve) => {
-          new THREE.RGBELoader().load(
-            ASSET.hdr,
-            (texture) => {
-              texture.mapping = THREE.EquirectangularReflectionMapping;
-              const pmrem = new THREE.PMREMGenerator(renderer);
-              pmrem.compileEquirectangularShader();
-              scene.environment = pmrem.fromEquirectangular(texture).texture;
-              texture.dispose();
-              pmrem.dispose();
-              resolve();
-            },
-            undefined,
-            () => resolve()
-          );
-        }),
-        new Promise((resolve) => setTimeout(resolve, 4000))
-      ]);
+      return new Promise((resolve) => {
+        new THREE.RGBELoader().load(
+          HDR_URL,
+          (texture) => {
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            const pmrem = new THREE.PMREMGenerator(renderer);
+            pmrem.compileEquirectangularShader();
+            const envMap = pmrem.fromEquirectangular(texture).texture;
+            scene.environment = envMap;
+            scene.background = envMap;
+            scene.backgroundBlurriness = 0.08;
+            // r128 may not support backgroundBlurriness; ignore if ignored
+            texture.dispose();
+            pmrem.dispose();
+            resolve();
+          },
+          undefined,
+          () => resolve()
+        );
+      });
     }
 
-    async function switchScene(id) {
-      if (loading) return;
-      if (id === currentSceneId && contentRoot.children.length) {
-        [...sceneBtns.children].forEach((b) => b.classList.toggle('active', b.dataset.id === id));
-        return;
-      }
+    function frameObject(object3d) {
+      const box = new THREE.Box3().setFromObject(object3d);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      object3d.position.sub(center);
+      object3d.position.y += size.y * 0.5;
+      lookAt.set(0, size.y * 0.45, 0);
+      camera.position.set(0, lookAt.y + 0.12, initialCamZ);
+      targetY = camera.position.y;
+    }
 
-      const def = SCENES.find((s) => s.id === id);
-      if (!def) return;
-
-      setLoading(true, `載入「${def.label}」…`);
-      currentSceneId = id;
-      [...sceneBtns.children].forEach((b) => b.classList.toggle('active', b.dataset.id === id));
-
-      while (contentRoot.children.length) {
-        const child = contentRoot.children[0];
-        contentRoot.remove(child);
-        child.traverse?.((obj) => {
-          if (obj.geometry) obj.geometry.dispose?.();
-          if (obj.material) {
-            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-            mats.forEach((m) => {
-              Object.values(m).forEach((v) => v?.isTexture && v.dispose?.());
-              m.dispose?.();
-            });
-          }
-        });
-      }
-      runtime.mixers.length = 0;
-      runtime.spin.length = 0;
-
-      lookAt.copy(def.lookAt);
-      initialCamZ = def.camZ;
-      rangeX = def.rangeX;
-      rangeY = def.rangeY;
-      targetX = 0;
-      targetY = lookAt.y * 0.15;
-      targetZ = initialCamZ;
-      camera.position.set(0, lookAt.y + 0.35, initialCamZ);
-
+    async function boot() {
       try {
-        await def.build(contentRoot, runtime);
-        statusText.textContent = `場景：${def.label}。開啟鏡頭後移動頭部感受視差。`;
+        await Promise.all([loadEnv(), (async () => {
+          const gltf = await loadGltf(PLANT_URL);
+          const plant = gltf.scene;
+          plant.traverse((obj) => {
+            if (obj.isMesh) {
+              obj.castShadow = false;
+              obj.receiveShadow = false;
+              if (obj.material) {
+                obj.material.envMapIntensity = 0.85;
+              }
+            }
+          });
+          plantRoot.add(plant);
+          frameObject(plant);
+        })()]);
+        loadingEl.classList.remove('show');
+        statusText.textContent = '開啟鏡頭後，緩緩左右前後移動頭部，感受庭院景深。';
+        startBtn.disabled = false;
       } catch (err) {
         console.error(err);
-        statusText.textContent = `「${def.label}」載入失敗，請檢查網路後再試。`;
-      } finally {
-        setLoading(false);
+        loadingEl.classList.remove('show');
+        statusText.textContent = '盆栽載入失敗，請稍後再試。';
       }
     }
-
-    SCENES.forEach((s) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'scene-btn';
-      btn.dataset.id = s.id;
-      btn.textContent = s.label;
-      btn.addEventListener('click', () => switchScene(s.id));
-      sceneBtns.appendChild(btn);
-    });
-
-    let targetX = 0;
-    let targetY = 0.2;
-    let targetZ = initialCamZ;
 
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -375,8 +207,6 @@
     });
 
     const videoElement = document.getElementById('webcam');
-    const startBtn = document.getElementById('start-btn');
-
     const faceMesh = new FaceMesh({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
     });
@@ -390,13 +220,13 @@
       if (!results.multiFaceLandmarks?.length) return;
       const nose = results.multiFaceLandmarks[0][1];
       targetX = (0.5 - nose.x) * rangeX;
-      targetY = lookAt.y + (0.5 - nose.y) * rangeY;
-      targetZ = initialCamZ + (nose.z * 4.5);
-      statusText.textContent = '追蹤中：左右前後移動頭部感受景深與視差';
+      targetY = lookAt.y + 0.12 + (0.5 - nose.y) * rangeY;
+      targetZ = initialCamZ + nose.z * 2.8;
+      statusText.textContent = '追蹤中：慢慢移動頭部，感受盆栽與庭院的前後層次。';
     });
 
     startBtn.addEventListener('click', async () => {
-      statusText.textContent = '正在載入臉部模型並開啟相機…';
+      statusText.textContent = '正在開啟相機…';
       startBtn.disabled = true;
       try {
         const cameraUtil = new Camera(videoElement, {
@@ -415,20 +245,18 @@
 
     function animate() {
       requestAnimationFrame(animate);
-      const dt = clock.getDelta();
-      runtime.mixers.forEach((m) => m.update(dt));
-      runtime.spin.forEach((obj) => { obj.rotation.y += dt * 0.25; });
+      const t = clock.getElapsedTime();
+      plantRoot.rotation.y = Math.sin(t * 0.15) * 0.04;
 
-      camera.position.x += (targetX - camera.position.x) * 0.08;
-      camera.position.y += (targetY - camera.position.y) * 0.08;
-      camera.position.z += (targetZ - camera.position.z) * 0.08;
+      camera.position.x += (targetX - camera.position.x) * 0.07;
+      camera.position.y += (targetY - camera.position.y) * 0.07;
+      camera.position.z += (targetZ - camera.position.z) * 0.07;
       camera.lookAt(lookAt);
       renderer.render(scene, camera);
     }
 
     animate();
-    loadEnv();
-    switchScene(SCENES[0].id);
+    boot();
   </script>
 </body>
 </html>
