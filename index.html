@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Three.js + Webcam 頭部追蹤視差測試</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #111;
+      font-family: sans-serif;
+    }
+    #overlay {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 10;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 16px;
+      border-radius: 8px;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    /* 隱藏攝影機影片，只在背景做影像運算 */
+    #webcam {
+      display: none;
+    }
+  </style>
+
+  <!-- 引入 Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- 引入 MediaPipe Face Mesh 與 Camera 工具 -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+  <div id="overlay">
+    <h2>Webcam 3D 視差驗證</h2>
+    <p id="status">點擊按鈕授權鏡頭以開始頭部追蹤</p>
+    <button id="start-btn">開啟攝影機體驗</button>
+  </div>
+
+  <video id="webcam" playsinline></video>
+
+  <script>
+    // --- 1. Three.js 場景建置 ---
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x111111, 0.05);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    const initialCamZ = 5;
+    camera.position.set(0, 0, initialCamZ);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    // 建立一個房間/隧道邊界方便觀察透視變形
+    const roomGeo = new THREE.BoxGeometry(8, 6, 12);
+    const roomMat = new THREE.MeshBasicMaterial({ color: 0x333333, wireframe: true });
+    const room = new THREE.Mesh(roomGeo, roomMat);
+    room.position.z = -2;
+    scene.add(room);
+
+    // 在中心放置主體幾何物體
+    const geometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+    const material = new THREE.MeshNormalMaterial({ wireframe: false });
+    const cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+
+    // 視窗大小改變自適應
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // 追蹤目標相機座標（平滑內插用）
+    let targetX = 0;
+    let targetY = 0;
+    let targetZ = initialCamZ;
+
+    // --- 2. MediaPipe 頭部追蹤設定 ---
+    const videoElement = document.getElementById('webcam');
+    const startBtn = document.getElementById('start-btn');
+    const statusText = document.getElementById('status');
+
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    faceMesh.onResults((results) => {
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        // 取鼻尖特徵點（索引 1）
+        const nose = landmarks[1];
+
+        // 座標正規化轉換：
+        // 鏡像翻轉 X：(0.5 - nose.x)
+        // 範圍放大並映射至相機平移量
+        const rangeX = 4.0;
+        const rangeY = 2.5;
+
+        targetX = (0.5 - nose.x) * rangeX;
+        targetY = (0.5 - nose.y) * rangeY;
+        
+        // nose.z 反映頭部與鏡頭距離（靠近/遠離）
+        targetZ = initialCamZ + (nose.z * 5.0);
+
+        statusText.innerText = "追蹤中：請左右前後移動頭部感受視差";
+      }
+    });
+
+    // 點擊按鈕啟動攝影機
+    startBtn.addEventListener('click', async () => {
+      statusText.innerText = "正在載入模型並開啟相機...";
+      startBtn.disabled = true;
+
+      try {
+        const cameraUtil = new Camera(videoElement, {
+          onFrame: async () => {
+            await faceMesh.send({ image: videoElement });
+          },
+          width: 640,
+          height: 480
+        });
+        await cameraUtil.start();
+        startBtn.style.display = 'none';
+      } catch (err) {
+        console.error(err);
+        statusText.innerText = "無法開啟相機，請確認已給予權限並以 HTTPS 連線。";
+        startBtn.disabled = false;
+      }
+    });
+
+    // --- 3. 渲染迴圈 (Render Loop) ---
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // 線性內插 (Lerp) 平滑相機移動，避免畫面劇烈抖動
+      camera.position.x += (targetX - camera.position.x) * 0.08;
+      camera.position.y += (targetY - camera.position.y) * 0.08;
+      camera.position.z += (targetZ - camera.position.z) * 0.08;
+
+      // 視角恆朝向場景中心 (0, 0, 0)
+      camera.lookAt(0, 0, 0);
+
+      // 讓中心方塊緩慢自轉增加立體感
+      cube.rotation.x += 0.005;
+      cube.rotation.y += 0.005;
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
